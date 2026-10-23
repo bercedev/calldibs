@@ -1,11 +1,12 @@
 import io
+import json
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from calldibs.cli import LOOK, NOTE, STOP, TARGET, assess, build_query, claim_line, report, rule_findings  # noqa: E402
+from calldibs.cli import LOOK, NOTE, STOP, TARGET, assess, build_query, claim_line, report, rule_findings
 
 
 def pr(number, author="alice", state="OPEN", repo="o/r", title="Fix it", body=None):
@@ -58,12 +59,20 @@ class AssessTest(unittest.TestCase):
     def test_clear_issue(self):
         found = assess(data(), "o", "r", 12)
         self.assertEqual(found, [])
-        self.assertEqual(report("x", found, io.StringIO()), 0)
+        self.assertEqual(report("o/r#12", "t", found, out=io.StringIO()), 0)
 
     def test_open_closing_pr_by_someone_else_stops(self):
         found = assess(data(closedByPullRequestsReferences={"nodes": [pr(40)]}), "o", "r", 12)
         self.assertEqual(levels(found), [STOP])
-        self.assertEqual(report("x", found, io.StringIO()), 1)
+        self.assertEqual(report("o/r#12", "t", found, out=io.StringIO()), 1)
+
+    def test_json_report(self):
+        found = [(NOTE, "CLA: CONTRIBUTING.md:3: sign it"), (LOOK, "bob said they would take it")]
+        out = io.StringIO()
+        self.assertEqual(report("o/r#12", "Crash", found, as_json=True, out=out), 1)
+        result = json.loads(out.getvalue())
+        self.assertEqual(result["verdict"], "look")
+        self.assertEqual([f["level"] for f in result["findings"]], [LOOK, NOTE])
 
     def test_own_pr_is_only_a_note(self):
         found = assess(data(closedByPullRequestsReferences={"nodes": [pr(40, author="me")]}), "o", "r", 12)
@@ -109,7 +118,11 @@ class AssessTest(unittest.TestCase):
         )
         self.assertEqual(
             found,
-            [(STOP, "the issue is closed (not planned)"), (STOP, "assigned to bob"), (LOOK, "labeled 'status: wontfix'")],
+            [
+                (STOP, "the issue is closed (not planned)"),
+                (STOP, "assigned to bob"),
+                (LOOK, "labeled 'status: wontfix'"),
+            ],
         )
 
     def test_claims_skip_bots_and_viewer_and_keep_one_per_person(self):
@@ -139,7 +152,7 @@ class PatternTest(unittest.TestCase):
             "/assign",
             "please assign it to me",
             "- [x] I'm willing to submit a PR",
-            "I’m fixing this in my fork",
+            "I\u2019m fixing this in my fork",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in ("Same crash here", "Any update?", "- [ ] I'm willing to submit a PR", "Works for me."):
@@ -147,8 +160,12 @@ class PatternTest(unittest.TestCase):
 
     def test_rules(self):
         files = {
-            "CONTRIBUTING.md": "Use of AI tools must be disclosed.\nSign the CLA first.\nWait to be assigned before you open a PR.\n",
-            ".github/pull_request_template.md": "Signed-off-by: line required (DCO)\nWe use CopilotKit and the mail api.\n",
+            "CONTRIBUTING.md": (
+                "Use of AI tools must be disclosed.\nSign the CLA first.\nWait to be assigned before you open a PR.\n"
+            ),
+            ".github/pull_request_template.md": (
+                "Signed-off-by: line required (DCO)\nWe use CopilotKit and the mail api.\n"
+            ),
             "AGENTS.md": "This is an AI agent framework.\nThe issue must carry the `accepted` label.\n",
         }
         found = [text.split(":")[0] for _, text in rule_findings(files)]

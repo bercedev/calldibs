@@ -18,6 +18,11 @@ API = "https://api.github.com/graphql"
 
 STOP, LOOK, NOTE = "STOP", "LOOK", "NOTE"
 ORDER = {STOP: 0, LOOK: 1, NOTE: 2}
+VERDICTS = {
+    "stop": "someone is already on this, or it is not open for work",
+    "look": "read the items above before you start",
+    "clear": "nobody seems to be working on this",
+}
 
 # Where projects usually write down their contribution rules.
 RULE_FILES = (
@@ -55,7 +60,8 @@ LINES_PER_RULE = 2
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
 CLAIM = re.compile(
-    r"\b(?:i[’']?m|i am|i[’']?ll|i will|i[’']?d like to|i would like to|can i|could i|may i|let me)\b[^.\n]{0,30}?"
+    r"\b(?:i[\u2019']?m|i am|i[\u2019']?ll|i will|i[\u2019']?d like to|i would like to|can i|could i|may i|let me)\b"
+    r"[^.\n]{0,30}?"
     r"\b(?:work(?:ing)? on|tak(?:e|ing)|pick(?:ing)? (?:it|this) up|fix(?:ing)?|handl(?:e|ing)|submit(?:ting)?"
     r"|open(?:ing)? a pr)\b"
     r"|^\s*/(?:assign|take|claim)\b"
@@ -102,17 +108,22 @@ def build_query(with_issue: bool, keywords: int) -> str:
     }}"""
         )
     files = "".join(
-        f'\n    f{i}: object(expression: "HEAD:{path}") {{ ... on Blob {{ text }} }}' for i, path in enumerate(RULE_FILES)
+        f'\n    f{i}: object(expression: "HEAD:{path}") {{ ... on Blob {{ text }} }}'
+        for i, path in enumerate(RULE_FILES)
     )
-    searches = ""
-    if with_issue:
-        searches += f"\n  mentions: search(query: $mentions, type: ISSUE, first: 30) {{ nodes {{ ... on PullRequest {{ {PR_FIELDS} body }} }} }}"
+    searches = [("mentions", 30, " body")] if with_issue else []
     for i in range(keywords):
         params.append(f"$kw{i}: String!")
-        searches += f"\n  kw{i}: search(query: $kw{i}, type: ISSUE, first: 10) {{ nodes {{ ... on PullRequest {{ {PR_FIELDS} }} }} }}"
+        searches.append((f"kw{i}", 10, ""))
+    search_fields = "".join(
+        f"\n  {alias}: search(query: ${alias}, type: ISSUE, first: {first}) "
+        f"{{ nodes {{ ... on PullRequest {{ {PR_FIELDS}{extra} }} }} }}"
+        for alias, first, extra in searches
+    )
     return (
         f"query({', '.join(params)}) {{\n  viewer {{ login }}\n"
-        f"  repository(owner: $owner, name: $name) {{\n    nameWithOwner isArchived{files}{''.join(parts)}\n  }}{searches}\n}}"
+        f"  repository(owner: $owner, name: $name) {{\n    nameWithOwner isArchived{files}{''.join(parts)}\n  }}"
+        f"{search_fields}\n}}"
     )
 
 
@@ -292,25 +303,29 @@ def assess(data: dict, owner: str, name: str, num: int, ignore=frozenset(), keyw
                 continue
             reported.add(pr["number"])
             who = (pr.get("author") or {}).get("login", "ghost")
-            found.append((LOOK, f'open PR with "{keyword}" in the title: #{pr["number"]} by {who}: {one_line(pr["title"], 70)}'))
+            found.append(
+                (LOOK, f'open PR with "{keyword}" in the title: #{pr["number"]} by {who}: {one_line(pr["title"], 70)}')
+            )
     found += claim_findings(issue, viewer)
     return found
 
 
-def report(header: str, found: list[tuple[str, str]], out=None) -> int:
+def report(target: str, title: str, found: list[tuple[str, str]], as_json: bool = False, out=None) -> int:
     out = out or sys.stdout
-    print(header, file=out)
-    for level, text in sorted(found, key=lambda f: ORDER[f[0]]):
-        print(f"  {level}  {text}", file=out)
+    found = sorted(found, key=lambda f: ORDER[f[0]])
     levels = {level for level, _ in found}
-    if STOP in levels:
-        verdict = "stop: someone is already on this, or it is not open for work"
-    elif LOOK in levels:
-        verdict = "look first: read the items above before you start"
+    verdict = "stop" if STOP in levels else "look" if LOOK in levels else "clear"
+    if as_json:
+        findings = [{"level": level, "message": text} for level, text in found]
+        result = {"target": target, "title": title, "verdict": verdict, "summary": VERDICTS[verdict]}
+        json.dump(result | {"findings": findings}, out, indent=2, ensure_ascii=False)
+        print(file=out)
     else:
-        verdict = "clear: nobody seems to be working on this"
-    print(verdict, file=out)
-    return 1 if levels & {STOP, LOOK} else 0
+        print(f"{target}  {one_line(title, 80)}", file=out)
+        for level, text in found:
+            print(f"  {level}  {text}", file=out)
+        print(f"{'look first' if verdict == 'look' else verdict}: {VERDICTS[verdict]}", file=out)
+    return 0 if verdict == "clear" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -323,12 +338,21 @@ def main(argv: list[str] | None = None) -> int:
         "target", help="owner/repo#123 or an issue URL; owner/repo alone prints the repository's contribution rules"
     )
     parser.add_argument(
-        "-k", "--keyword", action="append", default=[], help="also flag open PRs with this word in the title (repeatable)"
+        "-k",
+        "--keyword",
+        action="append",
+        default=[],
+        help="also flag open PRs with this word in the title (repeatable)",
     )
     parser.add_argument(
-        "--ignore", action="append", type=int, default=[], metavar="PR",
+        "--ignore",
+        action="append",
+        type=int,
+        default=[],
+        metavar="PR",
         help="skip this PR number after you checked it by hand (repeatable)",
     )
+    parser.add_argument("--json", action="store_true", help="print JSON, for scripts and AI agents")
     parser.add_argument("--version", action="version", version=f"calldibs {__version__}")
     args = parser.parse_args(argv)
 
@@ -352,14 +376,17 @@ def main(argv: list[str] | None = None) -> int:
         if num and not repo.get("issue"):
             raise Error(f"{owner}/{name}#{num} is not an issue (a pull request, or it does not exist)")
     except Error as e:
+        if args.json:
+            print(json.dumps({"error": str(e)}))
         print(f"calldibs: {e}", file=sys.stderr)
         return 2
 
-    files = {
-        path: obj["text"] for i, path in enumerate(RULE_FILES) if (obj := repo.get(f"f{i}")) and obj.get("text")
-    }
+    files = {path: obj["text"] for i, path in enumerate(RULE_FILES) if (obj := repo.get(f"f{i}")) and obj.get("text")}
     rules = rule_findings(files)
     if num is None:
+        if args.json:
+            print(json.dumps({"target": repo["nameWithOwner"], "rules": [text for _, text in rules]}, indent=2))
+            return 0
         print(f"{repo['nameWithOwner']} contribution rules")
         for _, text in rules:
             print(f"  {text}")
@@ -367,4 +394,4 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  none found in {', '.join(RULE_FILES)}")
         return 0
     found = assess(data, owner, name, int(num), args.ignore, args.keyword) + rules
-    return report(f"{repo['nameWithOwner']}#{num}  {one_line(repo['issue']['title'], 80)}", found)
+    return report(f"{repo['nameWithOwner']}#{num}", repo["issue"]["title"], found, args.json)

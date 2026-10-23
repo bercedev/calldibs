@@ -17,11 +17,22 @@ stop: someone is already on this, or it is not open for work
 
 ## Install
 
+With uv:
+
 ```
 uv tool install git+https://github.com/bercedev/calldibs
 ```
 
-`pipx install git+https://github.com/bercedev/calldibs` works too. It needs Python 3.10 or newer and has no dependencies.
+With pip or pipx:
+
+```
+pipx install git+https://github.com/bercedev/calldibs
+pip install git+https://github.com/bercedev/calldibs
+```
+
+To run it once without installing: `uvx --from git+https://github.com/bercedev/calldibs calldibs owner/repo#123`.
+
+It needs Python 3.10 or newer and has no dependencies.
 
 It reads a token from `GH_TOKEN` or `GITHUB_TOKEN`. If neither is set, it asks `gh auth token`. The token only needs read access to public repositories.
 
@@ -33,6 +44,7 @@ calldibs https://github.com/owner/repo/issues/123
 calldibs owner/repo#123 -k crash  # also flag open PRs with "crash" in the title
 calldibs owner/repo#123 --ignore 456   # skip PR #456 after you checked it by hand
 calldibs owner/repo               # only print the repository's contribution rules
+calldibs owner/repo#123 --json    # JSON for scripts and agents
 ```
 
 Exit status is 0 when the issue is clear, 1 when there is something to stop at or look at, and 2 on errors. So you can put it in front of a push:
@@ -61,12 +73,44 @@ calldibs owner/repo#123 -k crash && git push && gh pr create
 - PRs in other repositories (forks) that mention the issue
 - lines about AI tools, a CLA, a DCO sign-off, or an issue gate in `CONTRIBUTING.md`, the PR template, `AGENTS.md` or `AI_POLICY.md`
 
+## AI agents
+
+Coding agents open a lot of duplicate PRs, and they rarely read `CONTRIBUTING.md` first. calldibs gives them both answers in one command.
+
+`--json` prints the verdict and the findings:
+
+```json
+{
+  "target": "acme/widget#412",
+  "title": "Crash when the config file is empty",
+  "verdict": "stop",
+  "summary": "someone is already on this, or it is not open for work",
+  "findings": [
+    {"level": "STOP", "message": "open PR #418 by alice: fix(config): handle an empty file"},
+    {"level": "NOTE", "message": "CLA: CONTRIBUTING.md:31: You need to sign a Contributor License Agreement (CLA) before we can accept your PR."}
+  ]
+}
+```
+
+On an error it prints `{"error": "..."}` and exits with 2.
+
+[`skills/calldibs/SKILL.md`](skills/calldibs/SKILL.md) tells an agent when to run calldibs and what to do with each result. Agents that read `SKILL.md` files can use it as is. For Claude Code, copy the `skills/calldibs` folder into `~/.claude/skills/`.
+
 ## Limits
 
 - The rule lines come from keyword matching. They point you to the right part of the file; read the file itself before you decide.
 - Claim detection only knows English phrases like "I'd like to work on this", "can I take this" and `/assign`.
 - It reads the last 100 comments and the first 100 linked PRs. That covers nearly every issue.
 - It does not look at CLA bots or required checks on recent PRs.
+
+## Development
+
+```
+uv sync
+uv run ruff format src tests
+uv run ruff check src tests
+uv run python -m unittest discover -s tests
+```
 
 ## License
 
