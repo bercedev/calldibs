@@ -1,11 +1,17 @@
 import io
 import json
+import os
+import subprocess
 import sys
 import unittest
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from calldibs import cli
 from calldibs.cli import LOOK, NOTE, STOP, TARGET, assess, build_query, claim_line, report, rule_findings
 
 
@@ -110,7 +116,7 @@ class AssessTest(unittest.TestCase):
                 state="CLOSED",
                 stateReason="NOT_PLANNED",
                 assignees={"nodes": [{"login": "bob"}]},
-                labels={"nodes": [{"name": "status: wontfix"}]},
+                labels={"nodes": [{"name": "status: wontfix"}, {"name": "status: unblocked"}]},
             ),
             "o",
             "r",
@@ -152,10 +158,22 @@ class PatternTest(unittest.TestCase):
             "/assign",
             "please assign it to me",
             "- [x] I'm willing to submit a PR",
+            "I'll open a PR for this tonight",
+            "Let me pick it up",
             "I\u2019m fixing this in my fork",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
-        for text in ("Same crash here", "Any update?", "- [ ] I'm willing to submit a PR", "Works for me."):
+        for text in (
+            "Same crash here",
+            "Any update?",
+            "- [ ] I'm willing to submit a PR",
+            "Works for me.",
+            "I am working on a Next.js app and the build fails after upgrading.",
+            "I'm trying to fix my config but it keeps crashing",
+            "Can I take a screenshot of the error somehow?",
+            "I will submit more logs tomorrow",
+            "I'll take a look at the logs",
+        ):
             self.assertIsNone(claim_line(text), text)
 
     def test_rules(self):
@@ -178,12 +196,84 @@ class PatternTest(unittest.TestCase):
         )
         self.assertEqual(TARGET.match("o/r").group("num"), None)
         self.assertIsNone(TARGET.match("https://github.com/o/r/pull/12"))
+        for link in (
+            "https://github.com/o/r/issues/12#issuecomment-99",
+            "https://github.com/o/r/issues/12?notification_referrer_id=x",
+            "github.com/o/r/issues/12",
+        ):
+            self.assertEqual(TARGET.match(link).group("owner", "name", "num"), ("o", "r", "12"), link)
 
     def test_query_declares_only_used_variables(self):
         self.assertNotIn("$num", build_query(False, 0))
         query = build_query(True, 2)
         for var in ("$num", "$mentions", "$kw0", "$kw1"):
             self.assertEqual(query.count(var), 2, var)
+
+
+def run_main(argv, reply):
+    """Run main() with GitHub replaced by `reply` (a dict, or an exception to raise)."""
+    out, err = io.StringIO(), io.StringIO()
+    side_effect = reply if isinstance(reply, Exception) else None
+    with (
+        mock.patch.object(cli, "get_token", return_value="token"),
+        mock.patch.object(cli, "graphql", return_value=reply, side_effect=side_effect) as graphql,
+        redirect_stdout(out),
+        redirect_stderr(err),
+    ):
+        code = cli.main(argv)
+    return code, out.getvalue(), err.getvalue(), graphql
+
+
+class MainTest(unittest.TestCase):
+    def test_issue_link_with_keyword_as_json(self):
+        reply = data(closedByPullRequestsReferences={"nodes": [pr(40)]})
+        code, out, _, graphql = run_main(
+            ["https://github.com/o/r/issues/12#issuecomment-5", "--json", "-k", 'cr"ash'], reply
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["verdict"], "stop")
+        variables = graphql.call_args.args[1]
+        self.assertEqual(variables["num"], 12)
+        self.assertIn("sort:updated-desc", variables["mentions"])
+        self.assertEqual(variables["kw0"], 'repo:o/r is:pr is:open in:title "crash"')
+
+    def test_rules_only_as_json(self):
+        reply = {
+            "viewer": {"login": "me"},
+            "repository": {"nameWithOwner": "o/r", "isArchived": False, "f0": {"text": "Sign the CLA first."}},
+        }
+        code, out, _, _ = run_main(["o/r", "--json"], reply)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"target": "o/r", "rules": ["CLA: CONTRIBUTING.md:1: Sign the CLA first."]})
+
+    def test_pull_request_number_is_an_error(self):
+        reply = {"viewer": {"login": "me"}, "repository": {"nameWithOwner": "o/r", "isArchived": False, "issue": None}}
+        code, out, err, _ = run_main(["o/r#7", "--json"], reply)
+        self.assertEqual(code, 2)
+        self.assertIn("not an issue", json.loads(out)["error"])
+        self.assertIn("not an issue", err)
+
+    def test_api_error_is_exit_2(self):
+        code, out, err, _ = run_main(["o/r#7"], cli.Error("GitHub API returned HTTP 401"))
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("HTTP 401", err)
+
+    def test_http_error_hint(self):
+        error = urllib.error.HTTPError(cli.API, 401, "Unauthorized", {}, None)
+        with (
+            mock.patch.object(cli.urllib.request, "urlopen", side_effect=error),
+            self.assertRaisesRegex(cli.Error, "HTTP 401: the token is invalid or expired"),
+        ):
+            cli.graphql("query { viewer { login } }", {}, "token")
+
+    def test_gh_token_timeout(self):
+        with (
+            mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}),
+            mock.patch.object(cli.shutil, "which", return_value="/usr/bin/gh"),
+            mock.patch.object(cli.subprocess, "run", side_effect=subprocess.TimeoutExpired("gh", 10)),
+            self.assertRaisesRegex(cli.Error, "did not answer"),
+        ):
+            cli.get_token()
 
 
 if __name__ == "__main__":

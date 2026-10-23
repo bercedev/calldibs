@@ -62,22 +62,29 @@ LINES_PER_RULE = 2
 CLAIM = re.compile(
     r"\b(?:i[\u2019']?m|i am|i[\u2019']?ll|i will|i[\u2019']?d like to|i would like to|can i|could i|may i|let me)\b"
     r"[^.\n]{0,30}?"
-    r"\b(?:work(?:ing)? on|tak(?:e|ing)|pick(?:ing)? (?:it|this) up|fix(?:ing)?|handl(?:e|ing)|submit(?:ting)?"
-    r"|open(?:ing)? a pr)\b"
+    # the verb needs the issue or a fix as its object: "I'm working on a Next.js app" is not a claim
+    r"\b(?:(?:work(?:ing)? on|tak(?:e|ing)|fix(?:ing)?|handl(?:e|ing)|submit(?:ting)?|open(?:ing)?|send(?:ing)?)"
+    r"\s+(?:this|it|the issue|this issue|this one|a fix|the fix|a pr|a pull request)|pick(?:ing)? (?:it|this) up)\b"
     r"|^\s*/(?:assign|take|claim)\b"
     r"|\bassign (?:it|this)(?: issue)? to me\b"
     r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b",
     re.I | re.M,
 )
 UNCHECKED = re.compile(r"^\s*[-*] \[ \].*$", re.M)
-BAD_LABELS = ("wontfix", "won't fix", "invalid", "duplicate", "not planned", "blocked", "on hold")
+BAD_LABEL = re.compile(r"\b(?:won'?t[ -]?fix|invalid|duplicate|not[ -]planned|blocked|on[ -]hold)\b", re.I)
 
+# Also takes links copied from notifications, with a #issuecomment-… fragment or a query string.
 TARGET = re.compile(
-    r"^(?:https?://github\.com/)?(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?"
-    r"(?:(?:#|/issues/)(?P<num>\d+))?/?$"
+    r"^(?:(?:https?://)?(?:www\.)?github\.com/)?(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?"
+    r"(?:(?:#|/issues/)(?P<num>\d+))?/?(?:[#?].*)?$"
 )
 
 PR_FIELDS = "number title state isDraft url author { login } repository { nameWithOwner }"
+HTTP_HINTS = {
+    401: ": the token is invalid or expired",
+    403: ": rate limited, or the token has no access",
+    429: ": rate limited, try again later",
+}
 
 
 class Error(Exception):
@@ -89,7 +96,7 @@ def build_query(with_issue: bool, keywords: int) -> str:
     parts = []
     if with_issue:
         params += ["$num: Int!", "$mentions: String!"]
-        # shortcut: one page of comments and links (last 100 / first 100), enough for nearly every issue
+        # shortcut: one page each of the newest comments and links, enough for nearly every issue
         parts.append(
             f"""
     issue(number: $num) {{
@@ -98,13 +105,13 @@ def build_query(with_issue: bool, keywords: int) -> str:
       assignees(first: 10) {{ nodes {{ login }} }}
       labels(first: 30) {{ nodes {{ name }} }}
       comments(last: 100) {{ nodes {{ author {{ login __typename }} createdAt body }} }}
-      timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {{
+      timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {{
         nodes {{
           ... on CrossReferencedEvent {{ willCloseTarget source {{ ... on PullRequest {{ {PR_FIELDS} }} }} }}
           ... on ConnectedEvent {{ subject {{ ... on PullRequest {{ {PR_FIELDS} }} }} }}
         }}
       }}
-      closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {{ nodes {{ {PR_FIELDS} }} }}
+      closedByPullRequestsReferences(last: 20, includeClosedPrs: true) {{ nodes {{ {PR_FIELDS} }} }}
     }}"""
         )
     files = "".join(
@@ -132,7 +139,10 @@ def get_token() -> str:
         if os.environ.get(var):
             return os.environ[var]
     if shutil.which("gh"):
-        out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
+        try:
+            out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            raise Error("`gh auth token` did not answer in 10 seconds") from None
         if out.returncode == 0 and out.stdout.strip():
             return out.stdout.strip()
     raise Error("no GitHub token: set GH_TOKEN or run `gh auth login`")
@@ -152,7 +162,8 @@ def graphql(query: str, variables: dict, token: str) -> dict:
         with urllib.request.urlopen(request, timeout=30) as response:
             reply = json.load(response)
     except urllib.error.HTTPError as e:
-        raise Error(f"GitHub API returned HTTP {e.code}") from None
+        hint = HTTP_HINTS.get(e.code, "")
+        raise Error(f"GitHub API returned HTTP {e.code}{hint}") from None
     except urllib.error.URLError as e:
         raise Error(f"cannot reach GitHub: {e.reason}") from None
     # NOT_FOUND (missing repository, or a PR number instead of an issue) is reported by the caller.
@@ -291,7 +302,7 @@ def assess(data: dict, owner: str, name: str, num: int, ignore=frozenset(), keyw
     elif assignees:
         found.append((NOTE, "assigned to you"))
     for label in issue["labels"]["nodes"]:
-        if any(bad in label["name"].lower() for bad in BAD_LABELS):
+        if BAD_LABEL.search(label["name"]):
             found.append((LOOK, f"labeled {label['name']!r}"))
 
     prs = linked_prs(data, owner, name, num)
@@ -365,7 +376,8 @@ def main(argv: list[str] | None = None) -> int:
 
     variables: dict = {"owner": owner, "name": name}
     if num:
-        variables |= {"num": int(num), "mentions": f"repo:{owner}/{name} is:pr {num}"}
+        # newest first, so short numbers that also match version strings do not push recent PRs out of the page
+        variables |= {"num": int(num), "mentions": f"repo:{owner}/{name} is:pr {num} sort:updated-desc"}
     for i, keyword in enumerate(args.keyword):
         variables[f"kw{i}"] = f'repo:{owner}/{name} is:pr is:open in:title "{keyword.replace(chr(34), "")}"'
     try:
