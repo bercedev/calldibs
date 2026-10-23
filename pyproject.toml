@@ -1,0 +1,21 @@
+[project]
+name = "calldibs"
+version = "0.1.0"
+description = "Check that nobody is already working on a GitHub issue before you start a fix."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "bercedev" }]
+keywords = ["github", "issues", "pull-requests", "open-source", "cli"]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/bercedev/calldibs"
+
+[project.scripts]
+calldibs = "calldibs.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
