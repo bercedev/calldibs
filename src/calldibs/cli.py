@@ -95,7 +95,7 @@ CLAIM = re.compile(
     r"|\bassign (?:it|this)(?: issue)? to me\b"
     r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b"
     r"|\b(?:my (?:fix|patch|branch)|fix branch)\b[^.\n?]{0,25}\bis ready\b|\bready (?:on|in) my (?:fork|branch)\b"
-    r"|\bhappy to (?:send|open|submit|make) (?:one|a pr|a pull request|a fix|the fix)\b"
+    r"|\bhappy to (?:send|open|submit|make|attempt|try|write|put up) (?:one|a pr|a pull request|a fix|the fix)\b"
     r"|\bi(?:[\u2019']ve| have) (?:pushed|created|made) (?:a |my )?(?:\w+ )?(?:branch|commit|fix|patch)\b"
     r"|\binterested in\b[^.\n]{0,60}\b(?:work(?:ing)? on|fix(?:ing)?|tak(?:e|ing)) (?:this|it|a fix|the fix)\b",
     re.I | re.M,

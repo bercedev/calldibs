@@ -207,6 +207,7 @@ class PatternTest(unittest.TestCase):
             "The fix branch is ready: https://github.com/someone/repo/tree/fix-crash",
             "A fix is ready on my fork, opening the PR after lunch",
             "Happy to send a PR if you want it",
+            "Happy to attempt a PR for option 2 if maintainers agree on the approach.",
             "I'd like to pick this one up. Plan is to add the missing input.",
             "Both are still stale on main, and I've pushed a branch with the two-line fix:",
             "I've created a trivial commit to fix the issue",
