@@ -193,6 +193,21 @@ class PatternTest(unittest.TestCase):
             [(NOTE, "AI policy"), (NOTE, "CLA"), (NOTE, "DCO"), (LOOK, "issue gate"), (LOOK, "issue gate")],
         )
 
+    def test_rule_levels(self):
+        cases = [
+            ("Pull requests from AI agents will be closed.", [(LOOK, "AI policy")]),
+            ("We do not ban AI tools; just tell us when you used them.", [(NOTE, "AI policy")]),
+            ("Inactive issues are automatically closed after 30 days by the stale bot.", []),
+            ("Run the tests before a reviewer is assigned to your PR.", []),
+            ("Wait to be assigned before you open a PR.", [(LOOK, "issue gate")]),
+            ("Before you start, make sure the issue is assigned to you.", [(LOOK, "issue gate")]),
+            ("issue must carry the `accepted` label. A maintainer applies `accepted` once we", [(LOOK, "issue gate")]),
+            ("Pull requests that don't link an accepted issue are closed automatically by the", [(LOOK, "issue gate")]),
+        ]
+        for line, expected in cases:
+            found = [(level, text.split(":")[0]) for level, text in rule_findings({"CONTRIBUTING.md": line})]
+            self.assertEqual(found, expected, line)
+
     def test_ai_ban_is_look_and_survives_the_cut(self):
         files = {
             "CONTRIBUTING.md": (
@@ -308,6 +323,14 @@ class FindTest(unittest.TestCase):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
             cli.main(["find", "--limit", "31"])
         self.assertEqual(raised.exception.code, 2)
+
+    def test_negative_numbers_are_rejected(self):
+        for option in ("--days", "--max-comments", "--min-stars"):
+            err = io.StringIO()
+            with redirect_stderr(err), self.assertRaises(SystemExit) as raised:
+                cli.main(["find", option, "-1"])
+            self.assertEqual(raised.exception.code, 2, option)
+            self.assertIn("negative", err.getvalue(), option)
 
 
 def run_main(argv, reply):

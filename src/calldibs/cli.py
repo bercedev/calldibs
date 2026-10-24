@@ -36,14 +36,20 @@ RULE_FILES = (
     "AGENTS.md",
     "AI_POLICY.md",
 )
+# Wording that turns AI contributions away; "we do not ban AI tools" is not a ban.
+AI_BAN = re.compile(
+    r"\b(?:not accept\w*|reject\w*|(?<!not )(?<!n't )(?:ban(?:s|ned)?|prohibit\w*|forbid\w*)"
+    r"|not (?:allowed|permitted)|will be closed|must not)\b",
+    re.I,
+)
 # A line counts for a rule when every pattern of that rule matches it.
 RULES = {
     "AI policy": (
         re.compile(r"(?-i:\bAI\b)|\bLLMs?\b|\bgenerative\b|\bcopilot\b|\bchatgpt\b|\bagentic\b|human[- ]written", re.I),
         # rule language, so "an AI agent framework" in a project description does not count
         re.compile(
-            r"\b(?:disclos\w*|must|required?|do not|don't|never|not accept\w*|reject\w*|ban\w*|prohibit\w*"
-            r"|forbid\w*|allow\w*|limit\w*|polic(?:y|ies)|generated|assisted|rule|use of)\b",
+            r"\b(?:disclos\w*|must|required?|do not|don't|never|ban\w*|prohibit\w*|forbid\w*|allow\w*|limit\w*"
+            r"|polic(?:y|ies)|generated|assisted|rule|use of)\b|" + AI_BAN.pattern,
             re.I,
         ),
     ),
@@ -51,17 +57,17 @@ RULES = {
     "DCO": (re.compile(r"(?-i:\bDCO\b)|signed-off-by|developer certificate of origin", re.I),),
     "issue gate": (
         re.compile(
-            r"\bassigned\b.{0,40}\bbefore\b|\bbefore\b.{0,40}\bassigned\b|\bclaim (?:an|the|this) issue\b"
-            r"|\bmust (?:carry|have|be labell?ed)\b.{0,30}\blabel|\bclosed automatically\b|\bautomatically closed\b",
+            # you have to be assigned first: "before a reviewer is assigned" is not about you
+            r"\b(?:get|be|wait to be|until you are) assigned\b.{0,60}\b(?:before|first)\b"
+            r"|\bbefore\b.{0,60}\b(?:get|be) assigned\b|\bassigned to you\b|\bclaim (?:an|the|this) issue\b"
+            r"|\bmust (?:carry|have|be labell?ed)\b.{0,30}\blabel"
+            # PRs closed by a bot; stale issues closed after N days are not a gate
+            r"|\b(?:pull requests?|PRs?)\b[^.]{0,80}\b(?:closed automatically|automatically closed)\b"
+            r"|\bautomatically close[sd]? (?:pull requests?|PRs?)\b",
             re.I,
         ),
     ),
 }
-AI_BAN = re.compile(
-    r"\b(?:not accept\w*|reject\w*|ban(?:s|ned)?|prohibit\w*|forbid\w*|not (?:allowed|permitted)|will be closed"
-    r"|must not)\b",
-    re.I,
-)
 LINES_PER_RULE = 2
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
@@ -86,7 +92,8 @@ TARGET = re.compile(
 )
 
 PR_FIELDS = "number title state isDraft url author { login } repository { nameWithOwner }"
-# `calldibs find`: a short list to pick from, not a feed for opening PRs in bulk
+# `calldibs find`: a short list to pick from, not a feed for opening PRs in bulk.
+# shortcut: claims older than an issue's last 30 comments are missed here; the issue check reads 100
 MAX_FIND = 30
 FIND_PAGES = 3
 REPOS_PER_SEARCH = 10
@@ -103,7 +110,7 @@ FIND_QUERY = """query($q: String!, $after: String) {
         author { login __typename }
         repository { nameWithOwner stargazerCount }
         labels(first: 10) { nodes { name } }
-        comments(last: 10) { totalCount nodes { author { login __typename } createdAt body } }
+        comments(last: 30) { totalCount nodes { author { login __typename } createdAt body } }
         timelineItems(last: 20, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
           nodes {
             ... on CrossReferencedEvent { source { ... on PullRequest { state } } }
@@ -381,6 +388,13 @@ def report(target: str, title: str, found: list[tuple[str, str]], as_json: bool 
     return 0 if verdict == "clear" else 1
 
 
+def count(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"{value} is negative")
+    return number
+
+
 def find_query(
     words: list[str],
     repos: list[str],
@@ -438,10 +452,14 @@ def find(argv: list[str]) -> int:
         "--label", action="append", default=[], help='only issues with this label, e.g. "good first issue"'
     )
     parser.add_argument("--language", help="only repositories in this language, e.g. python")
-    parser.add_argument("--min-stars", type=int, default=0, metavar="N", help="only repositories with at least N stars")
-    parser.add_argument("--days", type=int, default=30, metavar="N", help="only issues opened in the last N days (30)")
     parser.add_argument(
-        "--max-comments", type=int, default=3, metavar="N", help="only issues with at most N comments (3)"
+        "--min-stars", type=count, default=0, metavar="N", help="only repositories with at least N stars"
+    )
+    parser.add_argument(
+        "--days", type=count, default=30, metavar="N", help="only issues opened in the last N days (30)"
+    )
+    parser.add_argument(
+        "--max-comments", type=count, default=3, metavar="N", help="only issues with at most N comments (3)"
     )
     parser.add_argument(
         "--limit", type=int, default=10, metavar="N", help=f"list at most N issues (10, max {MAX_FIND})"
