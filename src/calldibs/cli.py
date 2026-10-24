@@ -71,7 +71,10 @@ RULES = {
             # "never closed automatically" says the opposite
             r"|\b(?:pull requests?|PRs?)\b[^.]{0,80}(?<!never )(?<!not )(?<!n't )"
             r"\b(?:closed automatically|automatically closed)\b"
-            r"|\bautomatically close[sd]? (?:pull requests?|PRs?)\b",
+            r"|\bautomatically close[sd]? (?:pull requests?|PRs?)\b"
+            # a project board status first: "do not open a pull request until the issue has reached Ready"
+            r"|\b(?:open|send|submit) (?:a )?(?:pull request|PR) until\b"
+            r"|\b(?:pull requests?|PRs?) that (?:do not|don[\u2019']t)\b[^.]{0,80}\bwill be closed\b",
             re.I,
         ),
     ),

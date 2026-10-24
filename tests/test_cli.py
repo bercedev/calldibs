@@ -269,6 +269,11 @@ class PatternTest(unittest.TestCase):
             ("Stale PRs aren't closed automatically.", []),
             ("Tick the box to disclose AI use.", [(LOOK, "AI policy")]),
             (
+                "Do not begin implementation or open a pull request until the issue has reached **Ready**.",
+                [(LOOK, "issue gate")],
+            ),
+            ("Pull requests that do not implement a Ready issue will be closed.", [(LOOK, "issue gate")]),
+            (
                 "AI generated PRs may be accepted, but only if a maintainer has responded on an issue.",
                 [(LOOK, "AI policy")],
             ),
