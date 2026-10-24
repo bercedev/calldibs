@@ -48,7 +48,8 @@ RULES = {
     "AI policy": (
         re.compile(
             r"(?-i:\bAI\b)|\bLLMs?\b|\bgenerative\b|\bcopilot\b|\bchatgpt\b|\bagentic\b|human[- ]written"
-            r"|\bagent[- ]driven\b|\b(?:autonomous|coding) agents?\b",
+            r"|\bagent[- ]driven\b|\b(?:autonomous|coding) agents?\b"
+            r"|\bagents? (?:are|is) (?:strictly )?(?:forbidden|prohibited|banned|not (?:allowed|permitted))\b",
             re.I,
         ),
         # rule language, so "an AI agent framework" in a project description does not count

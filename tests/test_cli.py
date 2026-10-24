@@ -264,6 +264,11 @@ class PatternTest(unittest.TestCase):
             ),
             ("We do not accept, under any circumstances, **bulk, agent-driven contributions**", [(LOOK, "AI policy")]),
             ("Autonomous coding agents must not open pull requests here.", [(LOOK, "AI policy")]),
+            (
+                "- **Agents are strictly forbidden from interacting with our repository.** This includes",
+                [(LOOK, "AI policy")],
+            ),
+            ("Agents should read this file before editing.", []),
         ]
         for line, expected in cases:
             found = [(level, text.split(":")[0]) for level, text in rule_findings({"CONTRIBUTING.md": line})]
