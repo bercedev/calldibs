@@ -23,12 +23,14 @@ The JSON has a `verdict` and a list of `findings`, each with a `level` and a `me
 - `look`: open each LOOK item and read it. Tell the user what you found and let them decide. A LOOK can be:
   - a PR that mentions the issue, or a comment where someone said they would take it;
   - an `issue gate` rule: the issue needs a label (like `accepted`) or an assignment before a PR is accepted. Do not open a PR until the gate is met;
-  - an `AI policy` line that bans AI-written contributions. Never open a PR against a ban.
+  - an `AI policy` line that bans AI-written contributions. Never open a PR against a ban;
+  - an `AI policy` line that asks you to disclose AI use. Tell the user, and disclose it where and how the project asks.
 - `clear`: nobody else is on the issue. It does not mean the project wants a PR. Still follow the NOTE lines.
 
 NOTE lines:
 
-- `AI policy`: read that part of the file. Some projects want a disclosure of AI use.
+- `AI policy`: read that part of the file.
+- `linked guide`: the project keeps its rules on another page, like a wiki. Open the link and read it before you start.
 - `CLA`: the user has to sign it themselves. Do not sign it for them.
 - `DCO`: commits need a `Signed-off-by` line (`git commit -s`).
 - A closed PR that was not merged: read why it was closed before you redo the same fix.

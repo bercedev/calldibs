@@ -72,7 +72,7 @@ calldibs find --label "good first issue"   # look for something to work on
 calldibs owner/repo#123 -k crash && git push && gh pr create
 ```
 
-An issue gate or a ban on AI-written code in the project's rules counts as LOOK, so the chain stops there too. CLA and DCO lines are notes: read them, they don't stop the chain.
+An issue gate, a ban on AI-written code or a required AI disclosure in the project's rules counts as LOOK, so the chain stops there too. CLA and DCO lines are notes: read them, they don't stop the chain.
 
 ## 🔎 Find something to work on
 
@@ -118,11 +118,11 @@ Good issues go fast. If the list is empty, try a larger `--days` or `--max-comme
 | 👀 | **LOOK** | Someone said they'd take it, in a comment or in the issue form (`[x] I'm willing to submit a PR`) |
 | 👀 | **LOOK** | A label like `wontfix`, `duplicate`, `invalid` or `blocked` |
 | 👀 | **LOOK** | An open PR has one of your `-k` words in its title |
-| 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first) or a ban on AI-written code |
+| 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first), a ban on AI-written code, or a line asking you to disclose AI use |
 | 📝 | **NOTE** | Your own PRs for the issue |
 | 📝 | **NOTE** | Closed PRs that were not merged, so you can read why before you redo them |
 | 📝 | **NOTE** | PRs in other repositories (forks) that mention the issue |
-| 📝 | **NOTE** | Other lines about AI tools, a CLA or a DCO sign-off |
+| 📝 | **NOTE** | Other lines about AI tools, a CLA or a DCO sign-off, and links to a contribution guide on another page (like a wiki) |
 
 The rules come from `CONTRIBUTING.md`, the PR template, `AGENTS.md` and `AI_POLICY.md`.
 

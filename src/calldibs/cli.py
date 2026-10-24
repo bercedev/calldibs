@@ -42,6 +42,7 @@ AI_BAN = re.compile(
     r"|not (?:allowed|permitted)|will be closed|must not)\b",
     re.I,
 )
+GUIDE_LINK = re.compile(r"https?://[^\s)>\]]*contribut[^\s)>\]]*", re.I)
 # A line counts for a rule when every pattern of that rule matches it.
 RULES = {
     "AI policy": (
@@ -62,13 +63,18 @@ RULES = {
             r"|\bbefore\b.{0,60}\b(?:get|be) assigned\b|\bassigned to you\b|\bclaim (?:an|the|this) issue\b"
             r"|\bmust (?:carry|have|be labell?ed)\b.{0,30}\blabel"
             # PRs closed by a bot; stale issues closed after N days are not a gate
-            r"|\b(?:pull requests?|PRs?)\b[^.]{0,80}\b(?:closed automatically|automatically closed)\b"
+            # "never closed automatically" says the opposite
+            r"|\b(?:pull requests?|PRs?)\b[^.]{0,80}(?<!never )(?<!not )(?<!n't )"
+            r"\b(?:closed automatically|automatically closed)\b"
             r"|\bautomatically close[sd]? (?:pull requests?|PRs?)\b",
             re.I,
         ),
     ),
+    # the rules live on another page, like VS Code's wiki
+    "linked guide": (GUIDE_LINK,),
 }
 LINES_PER_RULE = 2
+DISCLOSE = re.compile(r"\bdisclos\w*", re.I)
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
 CLAIM = re.compile(
@@ -79,7 +85,9 @@ CLAIM = re.compile(
     r"\s+(?:this|it|the issue|this issue|this one|a fix|the fix|a pr|a pull request)|pick(?:ing)? (?:it|this) up)\b"
     r"|^\s*/(?:assign|take|claim)\b"
     r"|\bassign (?:it|this)(?: issue)? to me\b"
-    r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b",
+    r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b"
+    r"|\b(?:my (?:fix|patch|branch)|fix branch)\b[^.\n?]{0,25}\bis ready\b|\bready (?:on|in) my (?:fork|branch)\b"
+    r"|\bhappy to (?:send|open|submit|make) (?:one|a pr|a pull request|a fix|the fix)\b",
     re.I | re.M,
 )
 UNCHECKED = re.compile(r"^\s*[-*] \[ \].*$", re.M)
@@ -239,17 +247,24 @@ def mention_pattern(owner: str, name: str, num: int) -> str:
 
 
 def rule_level(rule: str, line: str) -> str:
-    # an issue gate or an AI ban decides whether a PR is accepted at all, so it is not just a note
-    if rule == "issue gate" or (rule == "AI policy" and AI_BAN.search(line)):
+    # an issue gate, an AI ban or a required AI disclosure decides how (or whether) a PR goes in
+    if rule == "issue gate" or (rule == "AI policy" and (AI_BAN.search(line) or DISCLOSE.search(line))):
         return LOOK
     return NOTE
+
+
+def rule_text(rule: str, line: str) -> str:
+    # a guide line is often long; the link is what to open
+    if rule == "linked guide" and (link := GUIDE_LINK.search(line)):
+        return link.group()
+    return one_line(line, 110)
 
 
 def rule_findings(files: dict[str, str]) -> list[tuple[str, str]]:
     found = []
     for rule, patterns in RULES.items():
         hits = [
-            (rule_level(rule, line), f"{rule}: {path}:{lineno}: {one_line(line, 110)}")
+            (rule_level(rule, line), f"{rule}: {path}:{lineno}: {rule_text(rule, line)}")
             for path, text in files.items()
             for lineno, line in enumerate(text.splitlines(), 1)
             if all(p.search(line) for p in patterns)

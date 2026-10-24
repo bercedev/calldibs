@@ -162,6 +162,9 @@ class PatternTest(unittest.TestCase):
             "I'll open a PR for this tonight",
             "Let me pick it up",
             "I\u2019m fixing this in my fork",
+            "The fix branch is ready: https://github.com/someone/repo/tree/fix-crash",
+            "A fix is ready on my fork, opening the PR after lunch",
+            "Happy to send a PR if you want it",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in (
@@ -174,6 +177,9 @@ class PatternTest(unittest.TestCase):
             "Can I take a screenshot of the error somehow?",
             "I will submit more logs tomorrow",
             "I'll take a look at the logs",
+            "When a fix is ready, please ping me.",
+            "Is the fix branch ready?",
+            "We'd be happy to review a PR.",
         ):
             self.assertIsNone(claim_line(text), text)
 
@@ -190,7 +196,7 @@ class PatternTest(unittest.TestCase):
         found = [(level, text.split(":")[0]) for level, text in rule_findings(files)]
         self.assertEqual(
             found,
-            [(NOTE, "AI policy"), (NOTE, "CLA"), (NOTE, "DCO"), (LOOK, "issue gate"), (LOOK, "issue gate")],
+            [(LOOK, "AI policy"), (NOTE, "CLA"), (NOTE, "DCO"), (LOOK, "issue gate"), (LOOK, "issue gate")],
         )
 
     def test_rule_levels(self):
@@ -203,6 +209,9 @@ class PatternTest(unittest.TestCase):
             ("Before you start, make sure the issue is assigned to you.", [(LOOK, "issue gate")]),
             ("issue must carry the `accepted` label. A maintainer applies `accepted` once we", [(LOOK, "issue gate")]),
             ("Pull requests that don't link an accepted issue are closed automatically by the", [(LOOK, "issue gate")]),
+            ("Pull requests are never closed automatically, a maintainer reads each one.", []),
+            ("Stale PRs aren't closed automatically.", []),
+            ("Tick the box to disclose AI use.", [(LOOK, "AI policy")]),
         ]
         for line, expected in cases:
             found = [(level, text.split(":")[0]) for level, text in rule_findings({"CONTRIBUTING.md": line})]
@@ -222,6 +231,23 @@ class PatternTest(unittest.TestCase):
                 (LOOK, "AI policy: CONTRIBUTING.md:3: We do not accept AI-generated pull requests."),
                 (NOTE, "AI policy: CONTRIBUTING.md:1: AI tools are fine for docs, see the rule below."),
                 (NOTE, "AI policy: 1 more line"),
+            ],
+        )
+
+    def test_linked_guide_shows_the_link(self):
+        line = (
+            "* Please refer to the article on [creating pull requests]"
+            "(https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests)"
+            " and contributing to this project."
+        )
+        self.assertEqual(
+            rule_findings({"CONTRIBUTING.md": f"# Contributing\n{line}\nSee https://example.com/docs too.\n"}),
+            [
+                (
+                    NOTE,
+                    "linked guide: CONTRIBUTING.md:2: "
+                    "https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests",
+                )
             ],
         )
 
