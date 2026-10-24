@@ -11,6 +11,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from datetime import date, timedelta
 
 from calldibs import __version__
 
@@ -56,6 +57,11 @@ RULES = {
         ),
     ),
 }
+AI_BAN = re.compile(
+    r"\b(?:not accept\w*|reject\w*|ban(?:s|ned)?|prohibit\w*|forbid\w*|not (?:allowed|permitted)|will be closed"
+    r"|must not)\b",
+    re.I,
+)
 LINES_PER_RULE = 2
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
@@ -80,6 +86,34 @@ TARGET = re.compile(
 )
 
 PR_FIELDS = "number title state isDraft url author { login } repository { nameWithOwner }"
+# `calldibs find`: a short list to pick from, not a feed for opening PRs in bulk
+MAX_FIND = 30
+FIND_PAGES = 3
+REPOS_PER_SEARCH = 10
+REPO_QUERY = """query($q: String!) {
+  search(query: $q, type: REPOSITORY, first: 20) { nodes { ... on Repository { nameWithOwner } } }
+}"""
+FIND_QUERY = """query($q: String!, $after: String) {
+  viewer { login }
+  search(query: $q, type: ISSUE, first: 30, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on Issue {
+        number title url createdAt body
+        author { login __typename }
+        repository { nameWithOwner stargazerCount }
+        labels(first: 10) { nodes { name } }
+        comments(last: 10) { totalCount nodes { author { login __typename } createdAt body } }
+        timelineItems(last: 20, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
+          nodes {
+            ... on CrossReferencedEvent { source { ... on PullRequest { state } } }
+            ... on ConnectedEvent { subject { ... on PullRequest { state } } }
+          }
+        }
+      }
+    }
+  }
+}"""
 HTTP_HINTS = {
     401: ": the token is invalid or expired",
     403: ": rate limited, or the token has no access",
@@ -197,16 +231,24 @@ def mention_pattern(owner: str, name: str, num: int) -> str:
     )
 
 
+def rule_level(rule: str, line: str) -> str:
+    # an issue gate or an AI ban decides whether a PR is accepted at all, so it is not just a note
+    if rule == "issue gate" or (rule == "AI policy" and AI_BAN.search(line)):
+        return LOOK
+    return NOTE
+
+
 def rule_findings(files: dict[str, str]) -> list[tuple[str, str]]:
     found = []
     for rule, patterns in RULES.items():
         hits = [
-            f"{path}:{lineno}: {one_line(line, 110)}"
+            (rule_level(rule, line), f"{rule}: {path}:{lineno}: {one_line(line, 110)}")
             for path, text in files.items()
             for lineno, line in enumerate(text.splitlines(), 1)
             if all(p.search(line) for p in patterns)
         ]
-        found += [(NOTE, f"{rule}: {hit}") for hit in hits[:LINES_PER_RULE]]
+        hits.sort(key=lambda hit: ORDER[hit[0]])  # keep a LOOK line from falling past the cut
+        found += hits[:LINES_PER_RULE]
         if (more := len(hits) - LINES_PER_RULE) > 0:
             found.append((NOTE, f"{rule}: {more} more line{'s' * (more != 1)}"))
     return found
@@ -339,11 +381,148 @@ def report(target: str, title: str, found: list[tuple[str, str]], as_json: bool 
     return 0 if verdict == "clear" else 1
 
 
+def find_query(
+    words: list[str],
+    repos: list[str],
+    labels: list[str],
+    language: str | None,
+    days: int,
+    max_comments: int,
+    today: date | None = None,
+) -> str:
+    since = (today or date.today()) - timedelta(days=days)
+    parts = ["is:issue", "is:open", "no:assignee", "-linked:pr", "archived:false"]
+    parts += [f"created:>={since.isoformat()}", f"comments:<={max_comments}", "sort:created-desc"]
+    parts += [f"repo:{repo}" for repo in repos]
+    parts += [f'label:"{label.replace(chr(34), "")}"' for label in labels]
+    if language:
+        parts.append(f"language:{language}")
+    return " ".join(parts + words)
+
+
+def repo_query(min_stars: int, language: str | None, labels: list[str], days: int, today: date | None = None) -> str:
+    since = (today or date.today()) - timedelta(days=days)
+    parts = [f"stars:>={min_stars}", "archived:false", f"pushed:>={since.isoformat()}", "sort:updated"]
+    if language:
+        parts.append(f"language:{language}")
+    wanted = {label.lower() for label in labels}
+    if "good first issue" in wanted:
+        parts.append("good-first-issues:>0")
+    if "help wanted" in wanted:
+        parts.append("help-wanted-issues:>0")
+    return " ".join(parts)
+
+
+def open_for_work(issue: dict, viewer: str) -> bool:
+    """No blocking label, no open PR pointing at it, and nobody (but you) said they would take it."""
+    if any(BAD_LABEL.search(label["name"]) for label in issue["labels"]["nodes"]):
+        return False
+    for event in issue["timelineItems"]["nodes"]:
+        if (event.get("source") or event.get("subject") or {}).get("state") == "OPEN":
+            return False
+    return not claim_findings(issue, viewer)
+
+
+def find(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="calldibs find",
+        description="List open issues that nobody seems to be working on: no assignee, no open PR, "
+        "no blocking label, and nobody said they would take it.",
+        epilog="Pick one you will really work on, then run `calldibs owner/repo#123` on it before you start.",
+    )
+    parser.add_argument("words", nargs="*", help="search words, e.g. crash or memory leak")
+    parser.add_argument(
+        "--repo", action="append", default=[], metavar="OWNER/REPO", help="only this repository (repeatable)"
+    )
+    parser.add_argument(
+        "--label", action="append", default=[], help='only issues with this label, e.g. "good first issue"'
+    )
+    parser.add_argument("--language", help="only repositories in this language, e.g. python")
+    parser.add_argument("--min-stars", type=int, default=0, metavar="N", help="only repositories with at least N stars")
+    parser.add_argument("--days", type=int, default=30, metavar="N", help="only issues opened in the last N days (30)")
+    parser.add_argument(
+        "--max-comments", type=int, default=3, metavar="N", help="only issues with at most N comments (3)"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=10, metavar="N", help=f"list at most N issues (10, max {MAX_FIND})"
+    )
+    parser.add_argument("--json", action="store_true", help="print JSON, for scripts and AI agents")
+    args = parser.parse_args(argv)
+    if not 1 <= args.limit <= MAX_FIND:
+        parser.error(f"--limit must be between 1 and {MAX_FIND}: list the issues you can really work on")
+    if any("/" not in repo for repo in args.repo):
+        parser.error("--repo takes owner/repo")
+
+    picked, queries = [], []
+    try:
+        token = get_token()
+        repos, chunks = args.repo, [args.repo]
+        if args.min_stars and not repos:
+            # issue search cannot filter by stars, so first pick active repositories above the bar
+            data = graphql(REPO_QUERY, {"q": repo_query(args.min_stars, args.language, args.label, args.days)}, token)
+            repos = [node["nameWithOwner"] for node in data["search"]["nodes"] if node]
+            chunks = [repos[i : i + REPOS_PER_SEARCH] for i in range(0, len(repos), REPOS_PER_SEARCH)]
+        for chunk in chunks:
+            queries.append(find_query(args.words, chunk, args.label, args.language, args.days, args.max_comments))
+            after = None
+            for _ in range(FIND_PAGES):
+                data = graphql(FIND_QUERY, {"q": queries[-1], "after": after}, token)
+                search = data["search"]
+                for issue in search["nodes"]:
+                    if (
+                        issue
+                        and len(picked) < args.limit
+                        and issue["repository"]["stargazerCount"] >= args.min_stars
+                        and open_for_work(issue, data["viewer"]["login"])
+                    ):
+                        picked.append(issue)
+                if len(picked) >= args.limit or not search["pageInfo"]["hasNextPage"]:
+                    break
+                after = search["pageInfo"]["endCursor"]
+            if len(picked) >= args.limit:
+                break
+    except Error as e:
+        if args.json:
+            print(json.dumps({"error": str(e)}))
+        print(f"calldibs: {e}", file=sys.stderr)
+        return 2
+
+    rows = [
+        {
+            "target": f"{issue['repository']['nameWithOwner']}#{issue['number']}",
+            "title": issue["title"],
+            "url": issue["url"],
+            "stars": issue["repository"]["stargazerCount"],
+            "comments": issue["comments"]["totalCount"],
+            "created": issue["createdAt"][:10],
+            "labels": [label["name"] for label in issue["labels"]["nodes"]],
+        }
+        for issue in picked
+    ]
+    if args.json:
+        print(json.dumps({"queries": queries, "issues": rows}, indent=2, ensure_ascii=False))
+        return 0
+    print(f"{len(rows)} open issue{'s' * (len(rows) != 1)} nobody seems to be working on")
+    for row in rows:
+        labels = f"  [{', '.join(row['labels'])}]" if row["labels"] else ""
+        title = one_line(row["title"], 70)
+        print(f"  {row['stars']:>7}★  {row['target']}  {row['comments']}c  {row['created']}  {title}{labels}")
+    if rows:
+        print(f"next: run `calldibs {rows[0]['target']}` on the one you pick, before you start")
+    else:
+        print("good issues go fast: try a larger --days or --max-comments, fewer labels, or a lower --min-stars")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["find"]:
+        return find(argv[1:])
     parser = argparse.ArgumentParser(
         prog="calldibs",
         description="Check that nobody is already working on a GitHub issue before you start a fix.",
-        epilog="Exit status: 0 clear, 1 something to stop or look at, 2 error.",
+        epilog="Exit status: 0 clear, 1 something to stop or look at, 2 error. "
+        "To look for issues to work on, see `calldibs find --help`.",
     )
     parser.add_argument(
         "target", help="owner/repo#123 or an issue URL; owner/repo alone prints the repository's contribution rules"
@@ -397,11 +576,12 @@ def main(argv: list[str] | None = None) -> int:
     rules = rule_findings(files)
     if num is None:
         if args.json:
-            print(json.dumps({"target": repo["nameWithOwner"], "rules": [text for _, text in rules]}, indent=2))
+            rule_list = [{"level": level, "message": text} for level, text in rules]
+            print(json.dumps({"target": repo["nameWithOwner"], "rules": rule_list}, indent=2, ensure_ascii=False))
             return 0
         print(f"{repo['nameWithOwner']} contribution rules")
-        for _, text in rules:
-            print(f"  {text}")
+        for level, text in rules:
+            print(f"  {level}  {text}")
         if not rules:
             print(f"  none found in {', '.join(RULE_FILES)}")
         return 0

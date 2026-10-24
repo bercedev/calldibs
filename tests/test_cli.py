@@ -6,6 +6,7 @@ import sys
 import unittest
 import urllib.error
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -186,8 +187,28 @@ class PatternTest(unittest.TestCase):
             ),
             "AGENTS.md": "This is an AI agent framework.\nThe issue must carry the `accepted` label.\n",
         }
-        found = [text.split(":")[0] for _, text in rule_findings(files)]
-        self.assertEqual(found, ["AI policy", "CLA", "DCO", "issue gate", "issue gate"])
+        found = [(level, text.split(":")[0]) for level, text in rule_findings(files)]
+        self.assertEqual(
+            found,
+            [(NOTE, "AI policy"), (NOTE, "CLA"), (NOTE, "DCO"), (LOOK, "issue gate"), (LOOK, "issue gate")],
+        )
+
+    def test_ai_ban_is_look_and_survives_the_cut(self):
+        files = {
+            "CONTRIBUTING.md": (
+                "AI tools are fine for docs, see the rule below.\n"
+                "Use of AI is allowed in tests.\n"
+                "We do not accept AI-generated pull requests.\n"
+            )
+        }
+        self.assertEqual(
+            rule_findings(files),
+            [
+                (LOOK, "AI policy: CONTRIBUTING.md:3: We do not accept AI-generated pull requests."),
+                (NOTE, "AI policy: CONTRIBUTING.md:1: AI tools are fine for docs, see the rule below."),
+                (NOTE, "AI policy: 1 more line"),
+            ],
+        )
 
     def test_targets(self):
         self.assertEqual(TARGET.match("o/r#12").group("owner", "name", "num"), ("o", "r", "12"))
@@ -210,10 +231,89 @@ class PatternTest(unittest.TestCase):
             self.assertEqual(query.count(var), 2, var)
 
 
+def issue_node(number, stars=5000, labels=(), comments=(), pr_states=()):
+    return {
+        "number": number,
+        "title": f"Bug {number}",
+        "url": f"https://github.com/o/r/issues/{number}",
+        "createdAt": "2026-10-20T10:00:00Z",
+        "body": "It breaks.",
+        "author": {"login": "reporter", "__typename": "User"},
+        "repository": {"nameWithOwner": "o/r", "stargazerCount": stars},
+        "labels": {"nodes": [{"name": name} for name in labels]},
+        "comments": {"totalCount": len(comments), "nodes": list(comments)},
+        "timelineItems": {"nodes": [{"source": {"state": state}} for state in pr_states]},
+    }
+
+
+def search_reply(nodes, more=False):
+    return {"viewer": {"login": "me"}, "search": {"pageInfo": {"hasNextPage": more, "endCursor": "c1"}, "nodes": nodes}}
+
+
+class FindTest(unittest.TestCase):
+    def test_query(self):
+        query = cli.find_query(
+            ["memory", "leak"], ["o/r"], ['good "first" issue'], "python", 30, 3, today=date(2026, 10, 24)
+        )
+        self.assertEqual(
+            query,
+            "is:issue is:open no:assignee -linked:pr archived:false created:>=2026-09-24 comments:<=3 "
+            'sort:created-desc repo:o/r label:"good first issue" language:python memory leak',
+        )
+
+    def test_open_for_work(self):
+        self.assertTrue(cli.open_for_work(issue_node(1), "me"))
+        self.assertTrue(cli.open_for_work(issue_node(2, pr_states=["CLOSED"]), "me"))
+        self.assertFalse(cli.open_for_work(issue_node(3, labels=["blocked"]), "me"))
+        self.assertFalse(cli.open_for_work(issue_node(4, pr_states=["OPEN"]), "me"))
+        self.assertFalse(cli.open_for_work(issue_node(5, comments=[comment("bob", "Can I take this?")]), "me"))
+        self.assertTrue(cli.open_for_work(issue_node(6, comments=[comment("me", "I'll take this")]), "me"))
+
+    def test_filters_stars_and_stops_at_the_limit(self):
+        nodes = [issue_node(1, stars=10), issue_node(2), issue_node(3, labels=["duplicate"]), {}, issue_node(4)]
+        code, out, _, graphql = run_main(
+            ["find", "--repo", "o/r", "--min-stars", "100", "--limit", "2", "--json"],
+            search_reply([*nodes, issue_node(5)], more=True),
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual([issue["target"] for issue in json.loads(out)["issues"]], ["o/r#2", "o/r#4"])
+        self.assertEqual(graphql.call_count, 1)
+
+    def test_min_stars_picks_repositories_first(self):
+        repos = {"search": {"nodes": [{"nameWithOwner": f"o/r{i}"} for i in range(12)]}}
+        code, out, _, graphql = run_main(
+            ["find", "--min-stars", "1000", "--json"], [repos, search_reply([issue_node(1)]), search_reply([])]
+        )
+        self.assertEqual(code, 0)
+        result = json.loads(out)
+        self.assertEqual([issue["target"] for issue in result["issues"]], ["o/r#1"])
+        self.assertEqual(len(result["queries"]), 2)
+        self.assertIn("repo:o/r9 ", result["queries"][0] + " ")
+        self.assertIn("repo:o/r11", result["queries"][1])
+        self.assertIn("stars:>=1000", graphql.call_args_list[0].args[1]["q"])
+
+    def test_repo_query(self):
+        self.assertEqual(
+            cli.repo_query(1000, "python", ["Good First Issue"], 30, today=date(2026, 10, 24)),
+            "stars:>=1000 archived:false pushed:>=2026-09-24 sort:updated language:python good-first-issues:>0",
+        )
+
+    def test_text_output_points_to_the_check(self):
+        code, out, _, _ = run_main(["find", "--repo", "o/r"], search_reply([issue_node(7)]))
+        self.assertEqual(code, 0)
+        self.assertIn("o/r#7", out)
+        self.assertIn("next: run `calldibs o/r#7`", out)
+
+    def test_limit_is_capped(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+            cli.main(["find", "--limit", "31"])
+        self.assertEqual(raised.exception.code, 2)
+
+
 def run_main(argv, reply):
-    """Run main() with GitHub replaced by `reply` (a dict, or an exception to raise)."""
+    """Run main() with GitHub replaced by `reply`: a dict, a list of dicts (one per request), or an exception."""
     out, err = io.StringIO(), io.StringIO()
-    side_effect = reply if isinstance(reply, Exception) else None
+    side_effect = reply if isinstance(reply, (Exception, list)) else None
     with (
         mock.patch.object(cli, "get_token", return_value="token"),
         mock.patch.object(cli, "graphql", return_value=reply, side_effect=side_effect) as graphql,
@@ -244,7 +344,8 @@ class MainTest(unittest.TestCase):
         }
         code, out, _, _ = run_main(["o/r", "--json"], reply)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out), {"target": "o/r", "rules": ["CLA: CONTRIBUTING.md:1: Sign the CLA first."]})
+        rules = [{"level": NOTE, "message": "CLA: CONTRIBUTING.md:1: Sign the CLA first."}]
+        self.assertEqual(json.loads(out), {"target": "o/r", "rules": rules})
 
     def test_pull_request_number_is_an_error(self):
         reply = {"viewer": {"login": "me"}, "repository": {"nameWithOwner": "o/r", "isArchived": False, "issue": None}}
