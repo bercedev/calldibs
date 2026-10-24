@@ -132,6 +132,16 @@ class AssessTest(unittest.TestCase):
             ],
         )
 
+    def test_help_wanted_assignee_is_a_look(self):
+        found = assess(
+            data(assignees={"nodes": [{"login": "owner"}]}, labels={"nodes": [{"name": "help wanted"}]}),
+            "o",
+            "r",
+            12,
+        )
+        self.assertEqual(levels(found), [LOOK])
+        self.assertIn("assigned to owner, but labeled 'help wanted'", found[0][1])
+
     def test_claims_skip_bots_and_viewer_and_keep_one_per_person(self):
         comments = [
             comment("bob", "I'd like to work on this"),
@@ -301,6 +311,11 @@ class FindTest(unittest.TestCase):
             "is:issue is:open no:assignee -linked:pr archived:false created:>=2026-09-24 comments:<=3 "
             'sort:created-desc repo:o/r label:"good first issue" language:python memory leak',
         )
+
+    def test_help_wanted_query_keeps_assigned_issues(self):
+        query = cli.find_query([], ["o/r"], ["help wanted"], None, 30, 3, today=date(2026, 10, 24))
+        self.assertNotIn("no:assignee", query)
+        self.assertIn("no:assignee", cli.find_query([], ["o/r"], ["bug"], None, 30, 3, today=date(2026, 10, 24)))
 
     def test_open_for_work(self):
         self.assertTrue(cli.open_for_work(issue_node(1), "me"))

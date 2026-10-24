@@ -92,6 +92,8 @@ CLAIM = re.compile(
 )
 UNCHECKED = re.compile(r"^\s*[-*] \[ \].*$", re.M)
 BAD_LABEL = re.compile(r"\b(?:won'?t[ -]?fix|invalid|duplicate|not[ -]planned|blocked|on[ -]hold)\b", re.I)
+# Some projects (VS Code) assign every issue to the area owner and invite PRs with this label.
+HELP_WANTED = re.compile(r"\bhelp[ -]wanted\b", re.I)
 
 # Also takes links copied from notifications, with a #issuecomment-… fragment or a query string.
 TARGET = re.compile(
@@ -117,6 +119,7 @@ FIND_QUERY = """query($q: String!, $after: String) {
         number title url createdAt body
         author { login __typename }
         repository { nameWithOwner stargazerCount }
+        assignees(first: 5) { nodes { login } }
         labels(first: 10) { nodes { name } }
         comments(last: 30) { totalCount nodes { author { login __typename } createdAt body } }
         timelineItems(last: 20, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
@@ -361,7 +364,11 @@ def assess(data: dict, owner: str, name: str, num: int, ignore=frozenset(), keyw
         found.append((STOP, f"the issue is closed ({reason})"))
     assignees = [a["login"] for a in issue["assignees"]["nodes"]]
     others = [a for a in assignees if a != viewer]
-    if others:
+    wanted = [label["name"] for label in issue["labels"]["nodes"] if HELP_WANTED.search(label["name"])]
+    if others and wanted:
+        note = "the assignee may own the area, ask them"
+        found.append((LOOK, f"assigned to {', '.join(others)}, but labeled {wanted[0]!r}: {note}"))
+    elif others:
         found.append((STOP, f"assigned to {', '.join(others)}"))
     elif assignees:
         found.append((NOTE, "assigned to you"))
@@ -420,7 +427,9 @@ def find_query(
     today: date | None = None,
 ) -> str:
     since = (today or date.today()) - timedelta(days=days)
-    parts = ["is:issue", "is:open", "no:assignee", "-linked:pr", "archived:false"]
+    # with help wanted, an assignee is often the area owner rather than someone at work on it
+    assignee = [] if any(HELP_WANTED.search(label) for label in labels) else ["no:assignee"]
+    parts = ["is:issue", "is:open", *assignee, "-linked:pr", "archived:false"]
     parts += [f"created:>={since.isoformat()}", f"comments:<={max_comments}", "sort:created-desc"]
     parts += [f"repo:{repo}" for repo in repos]
     parts += [f'label:"{label.replace(chr(34), "")}"' for label in labels]
@@ -529,6 +538,7 @@ def find(argv: list[str]) -> int:
             "comments": issue["comments"]["totalCount"],
             "created": issue["createdAt"][:10],
             "labels": [label["name"] for label in issue["labels"]["nodes"]],
+            "assignees": [a["login"] for a in (issue.get("assignees") or {}).get("nodes", [])],
         }
         for issue in picked
     ]
@@ -538,8 +548,9 @@ def find(argv: list[str]) -> int:
     print(f"{len(rows)} open issue{'s' * (len(rows) != 1)} nobody seems to be working on")
     for row in rows:
         labels = f"  [{', '.join(row['labels'])}]" if row["labels"] else ""
+        owner = f"  assigned: {', '.join(row['assignees'])}" if row["assignees"] else ""
         title = one_line(row["title"], 70)
-        print(f"  {row['stars']:>7}★  {row['target']}  {row['comments']}c  {row['created']}  {title}{labels}")
+        print(f"  {row['stars']:>7}★  {row['target']}  {row['comments']}c  {row['created']}  {title}{labels}{owner}")
     if rows:
         print(f"next: run `calldibs {rows[0]['target']}` on the one you pick, before you start")
     else:
