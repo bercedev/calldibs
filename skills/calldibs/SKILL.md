@@ -21,7 +21,7 @@ The JSON has a `verdict` and a list of `findings`, each with a `level` and a `me
 
 - `stop`: do not start. Someone has an open PR that closes the issue, the issue is assigned to someone else, or the issue or repository is closed. Tell the user what you found.
 - `look`: open each LOOK item and read it. Tell the user what you found and let them decide. A LOOK can be:
-  - a PR that mentions the issue, or a comment where someone said they would take it;
+  - a PR that mentions the issue, a comment where someone said they would take it, or one that says it is already fixed on main;
   - an `issue gate` rule: the issue needs a label (like `accepted`) or an assignment before a PR is accepted. Do not open a PR until the gate is met;
   - an `AI policy` line that bans AI-written contributions. Never open a PR against a ban;
   - an `AI policy` line that asks you to disclose AI use. Tell the user, and disclose it where and how the project asks.

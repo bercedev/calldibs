@@ -79,6 +79,8 @@ RULES = {
 }
 LINES_PER_RULE = 2
 DISCLOSE = re.compile(r"\bdisclos\w*", re.I)
+# "AI PRs are accepted only if a maintainer replied on the issue" is a gate
+CONDITION = re.compile(r"\bonly (?:if|when|after)\b|\bunless\b", re.I)
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
 CLAIM = re.compile(
@@ -86,7 +88,8 @@ CLAIM = re.compile(
     r"[^.\n]{0,30}?"
     # the verb needs the issue or a fix as its object: "I'm working on a Next.js app" is not a claim
     r"\b(?:(?:work(?:ing)? on|tak(?:e|ing)|fix(?:ing)?|handl(?:e|ing)|submit(?:ting)?|open(?:ing)?|send(?:ing)?)"
-    r"\s+(?:this|it|the issue|this issue|this one|a fix|the fix|a pr|a pull request)|pick(?:ing)? (?:it|this) up)\b"
+    r"\s+(?:this|it|the issue|this issue|this one|a fix|the fix|a pr|a pull request)"
+    r"|pick(?:ing)? (?:it|this(?: one)?) up)\b"
     r"|^\s*/(?:assign|take|claim)\b"
     r"|\bassign (?:it|this)(?: issue)? to me\b"
     r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b"
@@ -94,6 +97,8 @@ CLAIM = re.compile(
     r"|\bhappy to (?:send|open|submit|make) (?:one|a pr|a pull request|a fix|the fix)\b",
     re.I | re.M,
 )
+# Someone in the comments saying the bug is gone on the main branch.
+FIXED = re.compile(r"\balready (?:been )?fixed\b|\bfixed (?:on|in) (?:main|master)\b|\bno longer reproduces?\b", re.I)
 UNCHECKED = re.compile(r"^\s*[-*] \[ \].*$", re.M)
 BAD_LABEL = re.compile(r"\b(?:won'?t[ -]?fix|invalid|duplicate|not[ -]planned|blocked|on[ -]hold)\b", re.I)
 # Some projects (VS Code) assign every issue to the area owner and invite PRs with this label.
@@ -255,7 +260,7 @@ def mention_pattern(owner: str, name: str, num: int) -> str:
 
 def rule_level(rule: str, line: str) -> str:
     # an issue gate, an AI ban or a required AI disclosure decides how (or whether) a PR goes in
-    if rule == "issue gate" or (rule == "AI policy" and (AI_BAN.search(line) or DISCLOSE.search(line))):
+    if rule == "issue gate" or (rule == "AI policy" and any(p.search(line) for p in (AI_BAN, DISCLOSE, CONDITION))):
         return LOOK
     return NOTE
 
@@ -302,9 +307,12 @@ def linked_prs(data: dict, owner: str, name: str, num: int) -> dict[tuple[str, i
         elif "subject" in event:
             add(event["subject"], True)
     mention = mention_pattern(owner, name, num)
+    # a dependabot changelog links "#123" to another repository's PR, in Markdown or HTML: not this issue
+    other = rf"https?://(?:redirect\.)?github\.com/(?!{re.escape(f'{owner}/{name}/')})"
+    elsewhere = re.compile(rf"\[[^\]]*\]\({other}[^)]*\)|<a\s[^>]*href=\"{other}[^\"]*\"[^>]*>.*?</a>", re.I | re.S)
     closing = re.compile(rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(?:{mention})", re.I)
     for pr in (data.get("mentions") or {}).get("nodes", []):
-        text = f"{(pr or {}).get('title', '')}\n{(pr or {}).get('body') or ''}"
+        text = elsewhere.sub("", f"{(pr or {}).get('title', '')}\n{(pr or {}).get('body') or ''}")
         if re.search(mention, text, re.I):
             add(pr, bool(closing.search(text)))
     return prs
@@ -347,11 +355,15 @@ def claim_findings(issue: dict, viewer: str) -> list[tuple[str, str]]:
         who = author.get("login")
         if not who or who == viewer or who in seen or author.get("__typename") == "Bot":
             continue
-        line = claim_line(post.get("body") or "")
-        if line is not None:
+        body = post.get("body") or ""
+        when = f"on {post['createdAt'][:10]}" if post["createdAt"] else "in the issue"
+        if (line := claim_line(body)) is not None:
             seen.add(who)
-            when = f"on {post['createdAt'][:10]}" if post["createdAt"] else "in the issue"
             found.append((LOOK, f'{who} said they would take it {when}: "{one_line(line, 90)}"'))
+        elif post["createdAt"] and (match := FIXED.search(body)):  # the issue body may describe an old fix
+            seen.add(who)
+            said = one_line(line_at(body, match.start()), 90)
+            found.append((LOOK, f'{who} says it may already be fixed {when}: "{said}"'))
     return found
 
 

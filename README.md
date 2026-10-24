@@ -116,6 +116,7 @@ Good issues go fast. If the list is empty, try a larger `--days` or `--max-comme
 | 👀 | **LOOK** | An open PR mentions the issue without closing it |
 | 👀 | **LOOK** | A merged PR closes the issue, but the issue is still open |
 | 👀 | **LOOK** | Someone said they'd take it, in a comment or in the issue form (`[x] I'm willing to submit a PR`) |
+| 👀 | **LOOK** | A comment says it's already fixed on main |
 | 👀 | **LOOK** | A label like `wontfix`, `duplicate`, `invalid` or `blocked` |
 | 👀 | **LOOK** | An open PR has one of your `-k` words in its title |
 | 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first), a ban on AI-written code, or a line asking you to disclose AI use |

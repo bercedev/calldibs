@@ -142,6 +142,32 @@ class AssessTest(unittest.TestCase):
         self.assertEqual(levels(found), [LOOK])
         self.assertIn("assigned to owner, but labeled 'help wanted'", found[0][1])
 
+    def test_already_fixed_comment_is_a_look(self):
+        comments = [comment("carol", "Looks like this is already fixed on main by #14825.")]
+        found = assess(
+            data(body="This was fixed on main once and broke again.", comments={"nodes": comments}), "o", "r", 12
+        )
+        self.assertEqual(
+            found,
+            [
+                (
+                    LOOK,
+                    "carol says it may already be fixed on 2026-10-20: "
+                    '"Looks like this is already fixed on main by #14825."',
+                )
+            ],
+        )
+
+    def test_links_to_other_repositories_are_not_mentions(self):
+        body = "Bumps codeql-action.\n- Fix it ([#12](https://github.com/github/codeql-action/pull/12))"
+        html = '<li>Fixed. <a href="https://redirect.github.com/github/codeql-action/pull/12">#12</a></li>'
+        mentions = {
+            "nodes": [pr(41, body=body), pr(43, body=html), pr(42, body="See [#12](https://github.com/o/r/issues/12)")]
+        }
+        found = assess(data(extra={"mentions": mentions}), "o", "r", 12)
+        self.assertEqual([text.split(":")[0] for _, text in found], ["open PR mentions this issue"])
+        self.assertIn("#42", found[0][1])
+
     def test_claims_skip_bots_and_viewer_and_keep_one_per_person(self):
         comments = [
             comment("bob", "I'd like to work on this"),
@@ -175,6 +201,7 @@ class PatternTest(unittest.TestCase):
             "The fix branch is ready: https://github.com/someone/repo/tree/fix-crash",
             "A fix is ready on my fork, opening the PR after lunch",
             "Happy to send a PR if you want it",
+            "I'd like to pick this one up. Plan is to add the missing input.",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in (
@@ -222,6 +249,10 @@ class PatternTest(unittest.TestCase):
             ("Pull requests are never closed automatically, a maintainer reads each one.", []),
             ("Stale PRs aren't closed automatically.", []),
             ("Tick the box to disclose AI use.", [(LOOK, "AI policy")]),
+            (
+                "AI generated PRs may be accepted, but only if a maintainer has responded on an issue.",
+                [(LOOK, "AI policy")],
+            ),
             ("We do not accept, under any circumstances, **bulk, agent-driven contributions**", [(LOOK, "AI policy")]),
             ("Autonomous coding agents must not open pull requests here.", [(LOOK, "AI policy")]),
         ]
