@@ -30,6 +30,8 @@ RULE_FILES = (
     "CONTRIBUTING.md",
     ".github/CONTRIBUTING.md",
     "docs/CONTRIBUTING.md",
+    "CONTRIBUTING.rst",
+    ".github/CONTRIBUTING.rst",
     ".github/pull_request_template.md",
     ".github/PULL_REQUEST_TEMPLATE.md",
     "PULL_REQUEST_TEMPLATE.md",

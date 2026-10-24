@@ -125,7 +125,7 @@ Good issues go fast. If the list is empty, try a larger `--days` or `--max-comme
 | 📝 | **NOTE** | PRs in other repositories (forks) that mention the issue |
 | 📝 | **NOTE** | Other lines about AI tools, a CLA or a DCO sign-off, and links to a contribution guide on another page (like a wiki) |
 
-The rules come from `CONTRIBUTING.md`, the PR template, `AGENTS.md` and `AI_POLICY.md`.
+The rules come from `CONTRIBUTING.md` (or `.rst`), the PR template, `AGENTS.md` and `AI_POLICY.md`.
 
 ## 🤖 For AI agents
 
