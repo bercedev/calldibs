@@ -210,6 +210,7 @@ class PatternTest(unittest.TestCase):
             "I'd like to pick this one up. Plan is to add the missing input.",
             "Both are still stale on main, and I've pushed a branch with the two-line fix:",
             "I've created a trivial commit to fix the issue",
+            "I'm interested in investigating this issue and potentially working on a fix.",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in (
