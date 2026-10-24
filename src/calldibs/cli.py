@@ -106,6 +106,12 @@ CLAIM = re.compile(
 COLLABORATORS_ONLY = re.compile(
     r"\bnot a collaborator\b|\blimits? pull requests to collaborators\b|\bPRs are (?:limited|restricted) to\b", re.I
 )
+# The issue (or a maintainer) asking for discussion before any PR.
+NO_PR_YET = re.compile(
+    r"\b(?:no one|nobody|please don[\u2019']?t|do not|don[\u2019']?t)\s+(?:submit|open|send)\s+"
+    r"(?:a |any )?(?:pr|pull request)s?\b",
+    re.I,
+)
 # Someone in the comments saying the bug is gone on the main branch.
 FIXED = re.compile(r"\balready (?:been )?fixed\b|\bfixed (?:on|in) (?:main|master)\b|\bno longer reproduces?\b", re.I)
 UNCHECKED = re.compile(r"^\s*[-*] \[ \].*$", re.M)
@@ -371,6 +377,9 @@ def claim_findings(issue: dict, viewer: str) -> list[tuple[str, str]]:
         if (line := claim_line(body)) is not None:
             seen.add(who)
             found.append((LOOK, f'{who} said they would take it {when}: "{one_line(line, 90)}"'))
+        if match := NO_PR_YET.search(body):
+            said = one_line(line_at(body, match.start()), 90)
+            found.append((LOOK, f'{who} asks for no PR yet {when}: "{said}"'))
         if match := COLLABORATORS_ONLY.search(body):
             said = one_line(line_at(body, match.start()), 90)
             found.append((LOOK, f'{who} says only collaborators can open PRs here {when}: "{said}"'))

@@ -164,6 +164,12 @@ class AssessTest(unittest.TestCase):
         self.assertEqual(levels(found), [LOOK])
         self.assertIn("only collaborators can open PRs here in the issue", found[0][1])
 
+    def test_no_pr_yet_is_a_look(self):
+        body = "Please no one submit a PR to fix this yet! Instead, comment with your opinion."
+        found = assess(data(body=body), "o", "r", 12)
+        self.assertEqual(levels(found), [LOOK])
+        self.assertIn("asks for no PR yet in the issue", found[0][1])
+
     def test_links_to_other_repositories_are_not_mentions(self):
         body = "Bumps codeql-action.\n- Fix it ([#12](https://github.com/github/codeql-action/pull/12))"
         html = '<li>Fixed. <a href="https://redirect.github.com/github/codeql-action/pull/12">#12</a></li>'
