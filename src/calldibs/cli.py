@@ -46,7 +46,11 @@ GUIDE_LINK = re.compile(r"https?://[^\s)>\]]*contribut[^\s)>\]]*", re.I)
 # A line counts for a rule when every pattern of that rule matches it.
 RULES = {
     "AI policy": (
-        re.compile(r"(?-i:\bAI\b)|\bLLMs?\b|\bgenerative\b|\bcopilot\b|\bchatgpt\b|\bagentic\b|human[- ]written", re.I),
+        re.compile(
+            r"(?-i:\bAI\b)|\bLLMs?\b|\bgenerative\b|\bcopilot\b|\bchatgpt\b|\bagentic\b|human[- ]written"
+            r"|\bagent[- ]driven\b|\b(?:autonomous|coding) agents?\b",
+            re.I,
+        ),
         # rule language, so "an AI agent framework" in a project description does not count
         re.compile(
             r"\b(?:disclos\w*|must|required?|do not|don't|never|ban\w*|prohibit\w*|forbid\w*|allow\w*|limit\w*"

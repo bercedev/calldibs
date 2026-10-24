@@ -222,6 +222,8 @@ class PatternTest(unittest.TestCase):
             ("Pull requests are never closed automatically, a maintainer reads each one.", []),
             ("Stale PRs aren't closed automatically.", []),
             ("Tick the box to disclose AI use.", [(LOOK, "AI policy")]),
+            ("We do not accept, under any circumstances, **bulk, agent-driven contributions**", [(LOOK, "AI policy")]),
+            ("Autonomous coding agents must not open pull requests here.", [(LOOK, "AI policy")]),
         ]
         for line, expected in cases:
             found = [(level, text.split(":")[0]) for level, text in rule_findings({"CONTRIBUTING.md": line})]
