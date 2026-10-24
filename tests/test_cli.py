@@ -158,6 +158,12 @@ class AssessTest(unittest.TestCase):
             ],
         )
 
+    def test_collaborators_only_is_a_look(self):
+        body = "I've a fix, but cannot create a PR since I'm not a collaborator."
+        found = assess(data(body=body), "o", "r", 12)
+        self.assertEqual(levels(found), [LOOK])
+        self.assertIn("only collaborators can open PRs here in the issue", found[0][1])
+
     def test_links_to_other_repositories_are_not_mentions(self):
         body = "Bumps codeql-action.\n- Fix it ([#12](https://github.com/github/codeql-action/pull/12))"
         html = '<li>Fixed. <a href="https://redirect.github.com/github/codeql-action/pull/12">#12</a></li>'
@@ -202,6 +208,8 @@ class PatternTest(unittest.TestCase):
             "A fix is ready on my fork, opening the PR after lunch",
             "Happy to send a PR if you want it",
             "I'd like to pick this one up. Plan is to add the missing input.",
+            "Both are still stale on main, and I've pushed a branch with the two-line fix:",
+            "I've created a trivial commit to fix the issue",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in (

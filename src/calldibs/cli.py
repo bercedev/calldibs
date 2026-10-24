@@ -94,8 +94,13 @@ CLAIM = re.compile(
     r"|\bassign (?:it|this)(?: issue)? to me\b"
     r"|\[x\][^\n]{0,80}\b(?:willing|happy|plan(?:ning)?) to\b"
     r"|\b(?:my (?:fix|patch|branch)|fix branch)\b[^.\n?]{0,25}\bis ready\b|\bready (?:on|in) my (?:fork|branch)\b"
-    r"|\bhappy to (?:send|open|submit|make) (?:one|a pr|a pull request|a fix|the fix)\b",
+    r"|\bhappy to (?:send|open|submit|make) (?:one|a pr|a pull request|a fix|the fix)\b"
+    r"|\bi(?:[\u2019']ve| have) (?:pushed|created|made) (?:a |my )?(?:\w+ )?(?:branch|commit|fix|patch)\b",
     re.I | re.M,
+)
+# GitHub can limit PRs to collaborators; people then post a branch link in the issue instead.
+COLLABORATORS_ONLY = re.compile(
+    r"\bnot a collaborator\b|\blimits? pull requests to collaborators\b|\bPRs are (?:limited|restricted) to\b", re.I
 )
 # Someone in the comments saying the bug is gone on the main branch.
 FIXED = re.compile(r"\balready (?:been )?fixed\b|\bfixed (?:on|in) (?:main|master)\b|\bno longer reproduces?\b", re.I)
@@ -360,6 +365,9 @@ def claim_findings(issue: dict, viewer: str) -> list[tuple[str, str]]:
         if (line := claim_line(body)) is not None:
             seen.add(who)
             found.append((LOOK, f'{who} said they would take it {when}: "{one_line(line, 90)}"'))
+        if match := COLLABORATORS_ONLY.search(body):
+            said = one_line(line_at(body, match.start()), 90)
+            found.append((LOOK, f'{who} says only collaborators can open PRs here {when}: "{said}"'))
         elif post["createdAt"] and (match := FIXED.search(body)):  # the issue body may describe an old fix
             seen.add(who)
             said = one_line(line_at(body, match.start()), 90)
