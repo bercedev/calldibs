@@ -75,6 +75,14 @@ RULES = {
             re.I,
         ),
     ),
+    # the whole project is closed to outside PRs, like lazygit
+    "no PRs": (
+        re.compile(
+            r"\b(?:does not|doesn[\u2019']t|do not|don[\u2019']t|no longer|will not|won[\u2019']t)"
+            r" (?:accept|take|merge) (?:any )?(?:outside |external )?(?:pull requests|PRs|code contributions)\b",
+            re.I,
+        ),
+    ),
     # the rules live on another page, like VS Code's wiki
     "linked guide": (GUIDE_LINK,),
 }
@@ -275,7 +283,9 @@ def mention_pattern(owner: str, name: str, num: int) -> str:
 
 def rule_level(rule: str, line: str) -> str:
     # an issue gate, an AI ban or a required AI disclosure decides how (or whether) a PR goes in
-    if rule == "issue gate" or (rule == "AI policy" and any(p.search(line) for p in (AI_BAN, DISCLOSE, CONDITION))):
+    if rule in ("issue gate", "no PRs") or (
+        rule == "AI policy" and any(p.search(line) for p in (AI_BAN, DISCLOSE, CONDITION))
+    ):
         return LOOK
     return NOTE
 

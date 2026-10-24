@@ -280,6 +280,11 @@ class PatternTest(unittest.TestCase):
             ),
             ("Agents should read this file before editing.", []),
             (
+                "This project does not accept pull requests. Don't bother making one, it won't be merged.",
+                [(LOOK, "no PRs")],
+            ),
+            ("We don't take PRs without an issue.", [(LOOK, "no PRs")]),
+            (
                 "**We do not allow autonomous agents to be used for contributing to our projects.**",
                 [(LOOK, "AI policy")],
             ),

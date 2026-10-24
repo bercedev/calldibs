@@ -119,7 +119,7 @@ Good issues go fast. If the list is empty, try a larger `--days` or `--max-comme
 | 👀 | **LOOK** | A comment says it's already fixed on main |
 | 👀 | **LOOK** | A label like `wontfix`, `duplicate`, `invalid` or `blocked` |
 | 👀 | **LOOK** | An open PR has one of your `-k` words in its title |
-| 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first), a ban on AI-written code, or a line asking you to disclose AI use |
+| 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first), a ban on AI-written code, a line asking you to disclose AI use, or a project that takes no outside PRs |
 | 📝 | **NOTE** | Your own PRs for the issue |
 | 📝 | **NOTE** | Closed PRs that were not merged, so you can read why before you redo them |
 | 📝 | **NOTE** | PRs in other repositories (forks) that mention the issue |
