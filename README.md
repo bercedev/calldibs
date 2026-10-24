@@ -35,9 +35,9 @@ $ calldibs acme/widget#412
 acme/widget#412  Crash when the config file is empty
   STOP  open PR #418 by alice: fix(config): handle an empty file
   LOOK  bob said they would take it on 2026-10-20: "I'd like to work on this"
+  LOOK  issue gate: CONTRIBUTING.md:38: The issue must carry the `accepted` label before you open a PR.
   NOTE  closed PR #405 by carol: guard empty config; it was not merged, read why before redoing it
   NOTE  CLA: CONTRIBUTING.md:31: You need to sign a Contributor License Agreement (CLA) before we can accept your PR.
-  NOTE  issue gate: CONTRIBUTING.md:38: The issue must carry the `accepted` label before you open a PR.
 stop: someone is already on this, or it is not open for work
 ```
 
@@ -63,6 +63,7 @@ calldibs owner/repo#123 -k crash           # also flag open PRs with "crash" in 
 calldibs owner/repo#123 --ignore 456       # skip PR #456 after you checked it by hand
 calldibs owner/repo                        # only print the repository's contribution rules
 calldibs owner/repo#123 --json             # JSON for scripts and agents
+calldibs find --label "good first issue"   # look for something to work on
 ```
 
 🔗 The exit status is `0` when the issue is clear, `1` when there is something to stop at or look at, and `2` on errors. So you can put it in front of a push:
@@ -70,6 +71,40 @@ calldibs owner/repo#123 --json             # JSON for scripts and agents
 ```bash
 calldibs owner/repo#123 -k crash && git push && gh pr create
 ```
+
+An issue gate or a ban on AI-written code in the project's rules counts as LOOK, so the chain stops there too. CLA and DCO lines are notes: read them, they don't stop the chain.
+
+## 🔎 Find something to work on
+
+`calldibs find` lists open issues that nobody seems to be working on: no assignee, no open PR, no blocking label, and nobody said they'd take it.
+
+```bash
+calldibs find --label "good first issue" --language python
+calldibs find --label "help wanted" --min-stars 5000 --days 14
+calldibs find crash --repo owner/repo --repo owner/other
+calldibs find --min-stars 1000 --json
+```
+
+```console
+$ calldibs find --label "good first issue" --min-stars 1000 --days 90
+2 open issues nobody seems to be working on
+     2805★  acme/widget#4093  0c  2026-08-10  Tags cannot be edited after an import  [bug, good first issue]
+     2805★  acme/widget#4077  0c  2026-08-02  Design of shared posts  [good first issue, UI]
+next: run `calldibs acme/widget#4093` on the one you pick, before you start
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `words` | | Search words, like `crash` or `memory leak` |
+| `--repo` | | Only these repositories |
+| `--label` | | Only issues with this label |
+| `--language` | | Only repositories in this language |
+| `--min-stars` | `0` | Picks active repositories above the bar first, since GitHub's issue search can't filter by stars |
+| `--days` | `30` | Only issues opened in the last N days |
+| `--max-comments` | `3` | Only quiet issues |
+| `--limit` | `10` | At most 30 |
+
+Good issues go fast. If the list is empty, try a larger `--days` or `--max-comments`. Then pick one you'll really fix and run `calldibs owner/repo#123` on it before you start: `find` doesn't read the project's rules, the check does.
 
 ## 🚦 What it checks
 
@@ -83,10 +118,13 @@ calldibs owner/repo#123 -k crash && git push && gh pr create
 | 👀 | **LOOK** | Someone said they'd take it, in a comment or in the issue form (`[x] I'm willing to submit a PR`) |
 | 👀 | **LOOK** | A label like `wontfix`, `duplicate`, `invalid` or `blocked` |
 | 👀 | **LOOK** | An open PR has one of your `-k` words in its title |
+| 👀 | **LOOK** | A rule that can get your PR closed: an issue gate (an `accepted` label, or getting assigned first) or a ban on AI-written code |
 | 📝 | **NOTE** | Your own PRs for the issue |
 | 📝 | **NOTE** | Closed PRs that were not merged, so you can read why before you redo them |
 | 📝 | **NOTE** | PRs in other repositories (forks) that mention the issue |
-| 📝 | **NOTE** | Lines about AI tools, a CLA, a DCO sign-off or an issue gate in `CONTRIBUTING.md`, the PR template, `AGENTS.md` or `AI_POLICY.md` |
+| 📝 | **NOTE** | Other lines about AI tools, a CLA or a DCO sign-off |
+
+The rules come from `CONTRIBUTING.md`, the PR template, `AGENTS.md` and `AI_POLICY.md`.
 
 ## 🤖 For AI agents
 
@@ -120,6 +158,18 @@ It works with Claude Code, Codex, Cursor, OpenCode and the other agents the `ski
 ```
 
 On an error it prints `{"error": "..."}` and exits with `2`.
+
+## 🤝 Use it kindly
+
+calldibs is here to save maintainers from duplicate work, not to make more of it.
+
+- 🙅 **Don't farm contributions.** Opening PRs in bulk, or to grow a contribution graph, wastes maintainers' time even when no two PRs are the same.
+- 🎯 **Pick issues you'll see through.** Reply to reviews, change what they ask, and close the PR yourself if you can't finish it.
+- 📜 **`clear` is not an invitation.** It means nobody else is on the issue, not that the project wants your PR. Read the rules, and if a project bans AI-written code, don't send any.
+- 🙋 **Claim first when the project asks.** Comment on the issue and wait for a maintainer before you start.
+- 🤖 **Keep a human in the loop.** If an agent runs calldibs, it works on one issue at a time, and a person reviews every PR before it's opened.
+
+`calldibs find` lists at most 30 issues on purpose. It's for picking one, not for feeding a pipeline.
 
 ## ⚠️ Limits
 
