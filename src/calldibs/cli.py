@@ -85,7 +85,9 @@ CONDITION = re.compile(r"\bonly (?:if|when|after)\b|\bunless\b", re.I)
 
 # Someone saying they are taking the issue, in a comment or in the issue form.
 CLAIM = re.compile(
-    r"\b(?:i[\u2019']?m|i am|i[\u2019']?ll|i will|i[\u2019']?d like to|i would like to|can i|could i|may i|let me)\b"
+    r"\b(?:i[\u2019']?m|i am|i[\u2019']?ll|i will|i[\u2019']?d like to|i would like to|can i|could i|may i|let me"
+    # a team: "we're a course team and would like to take this one"
+    r"|we[\u2019']?re|we are|we[\u2019']?ll|we will|we[\u2019']?d like to|would like to|can we|could we|let us)\b"
     r"[^.\n]{0,30}?"
     # the verb needs the issue or a fix as its object: "I'm working on a Next.js app" is not a claim
     r"\b(?:(?:work(?:ing)? on|tak(?:e|ing)|fix(?:ing)?|handl(?:e|ing)|submit(?:ting)?|open(?:ing)?|send(?:ing)?)"

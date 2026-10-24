@@ -212,6 +212,7 @@ class PatternTest(unittest.TestCase):
             "Both are still stale on main, and I've pushed a branch with the two-line fix:",
             "I've created a trivial commit to fix the issue",
             "I'm interested in investigating this issue and potentially working on a fix.",
+            "Hi, we're a course team and would like to take this one. Is anyone already working on it?",
         ):
             self.assertEqual(claim_line(f"Hi\n{text}\nThanks"), text)
         for text in (
@@ -224,6 +225,8 @@ class PatternTest(unittest.TestCase):
             "Can I take a screenshot of the error somehow?",
             "I will submit more logs tomorrow",
             "I'll take a look at the logs",
+            "We would like to see this fixed soon.",
+            "We are working on a Next.js app too.",
             "When a fix is ready, please ping me.",
             "Is the fix branch ready?",
             "We'd be happy to review a PR.",
