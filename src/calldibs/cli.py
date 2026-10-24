@@ -39,7 +39,7 @@ RULE_FILES = (
 # Wording that turns AI contributions away; "we do not ban AI tools" is not a ban.
 AI_BAN = re.compile(
     r"\b(?:not accept\w*|reject\w*|(?<!not )(?<!n't )(?:ban(?:s|ned)?|prohibit\w*|forbid\w*)"
-    r"|not (?:allowed|permitted)|will be closed|must not)\b",
+    r"|not (?:allowed|permitted)|(?:do|does)(?: not|n't) allow|will be closed|must not)\b",
     re.I,
 )
 GUIDE_LINK = re.compile(r"https?://[^\s)>\]]*contribut[^\s)>\]]*", re.I)
@@ -288,9 +288,11 @@ def rule_findings(files: dict[str, str]) -> list[tuple[str, str]]:
             for lineno, line in enumerate(text.splitlines(), 1)
             if all(p.search(line) for p in patterns)
         ]
-        hits.sort(key=lambda hit: ORDER[hit[0]])  # keep a LOOK line from falling past the cut
-        found += hits[:LINES_PER_RULE]
-        if (more := len(hits) - LINES_PER_RULE) > 0:
+        # every LOOK line is shown; notes fill what is left of the cut
+        looks = [hit for hit in hits if hit[0] == LOOK]
+        kept = looks + [hit for hit in hits if hit[0] != LOOK][: max(0, LINES_PER_RULE - len(looks))]
+        found += kept
+        if (more := len(hits) - len(kept)) > 0:
             found.append((NOTE, f"{rule}: {more} more line{'s' * (more != 1)}"))
     return found
 

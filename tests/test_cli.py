@@ -269,6 +269,10 @@ class PatternTest(unittest.TestCase):
                 [(LOOK, "AI policy")],
             ),
             ("Agents should read this file before editing.", []),
+            (
+                "**We do not allow autonomous agents to be used for contributing to our projects.**",
+                [(LOOK, "AI policy")],
+            ),
         ]
         for line, expected in cases:
             found = [(level, text.split(":")[0]) for level, text in rule_findings({"CONTRIBUTING.md": line})]
@@ -290,6 +294,16 @@ class PatternTest(unittest.TestCase):
                 (NOTE, "AI policy: 1 more line"),
             ],
         )
+
+    def test_every_look_line_is_shown(self):
+        policy = (
+            "AI PRs will be closed.\nAI use must be disclosed.\n"
+            "AI-written docs are not allowed.\nUse of AI tools is allowed.\n"
+        )
+        files = {"AI_POLICY.md": policy}
+        found = rule_findings(files)
+        self.assertEqual([level for level, _ in found], [LOOK, LOOK, LOOK, NOTE])
+        self.assertEqual(found[-1][1], "AI policy: 1 more line")
 
     def test_linked_guide_shows_the_link(self):
         line = (
